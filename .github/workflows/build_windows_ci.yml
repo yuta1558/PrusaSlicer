@@ -165,10 +165,16 @@ jobs:
           # Copy binaries and runtime DLLs, excluding pdb files to keep artifact small
           Get-ChildItem -Path $binSrc -File | Where-Object { $_.Extension -ne ".pdb" } |
             Copy-Item -Destination $dist
-          Get-ChildItem -Path $binSrc -Directory |
+          Get-ChildItem -Path $binSrc -Directory | Where-Object { $_.Name -ne "resources" } |
             Copy-Item -Destination $dist -Recurse
 
-          # Resources directory must sit next to the executable at runtime
+          # Resources directory must sit next to the executable at runtime.
+          # Use the source-of-truth from the repo, replacing any copy that
+          # the build placed next to the binaries.
+          $distResources = Join-Path $dist "resources"
+          if (Test-Path $distResources) {
+            Remove-Item $distResources -Recurse -Force
+          }
           Copy-Item -Path "${{ github.workspace }}\resources" -Destination $dist -Recurse
 
           Get-ChildItem $dist | Format-Table Name, Length
