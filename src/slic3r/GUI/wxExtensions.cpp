@@ -41,6 +41,11 @@ void sys_color_changed_menu(wxMenu* menu)
 				wxBitmapBundle* item_icon = get_bmp_bundle(it->second);
 				if (item_icon->IsOk())
 					item->SetBitmap(*item_icon);
+#ifdef __WXMSW__
+				wxBitmapBundle* item_icon_disabled = get_bmp_bundle(it->second, 16, -1, std::string(), true);
+				if (item_icon_disabled && item_icon_disabled->IsOk())
+					item->SetDisabledBitmap(*item_icon_disabled);
+#endif // __WXMSW__
 			}
 			if (item->IsSubMenu())
 				for (wxMenuItem *sub_item : item->GetSubMenu()->GetMenuItems())
@@ -147,7 +152,21 @@ wxMenuItem* append_menu_item(wxMenu* menu, int id, const wxString& string, const
         msw_menuitem_bitmaps[id] = icon;
 #endif /* no __linux__ */
 
-    return append_menu_item(menu, id, string, description, cb, bmp, event_handler, cb_condition, parent, insert_pos);
+    wxMenuItem* item = append_menu_item(menu, id, string, description, cb, bmp, event_handler, cb_condition, parent, insert_pos);
+
+#ifdef __WXMSW__
+    // On Windows, wxWidgets renders menu icons as solid black silhouettes
+    // when an item is disabled and only the (SVG) wxBitmapBundle is set.
+    // Provide an explicit disabled-state bundle so wxMSW renders the icon
+    // greyed-out instead of black.
+    if (item && !icon.empty()) {
+        wxBitmapBundle* bmp_disabled = get_bmp_bundle(icon, 16, -1, std::string(), true);
+        if (bmp_disabled && bmp_disabled->IsOk())
+            item->SetDisabledBitmap(*bmp_disabled);
+    }
+#endif // __WXMSW__
+
+    return item;
 }
 
 wxMenuItem* append_submenu(wxMenu* menu, wxMenu* sub_menu, int id, const wxString& string, const wxString& description, const std::string& icon,
@@ -163,6 +182,12 @@ wxMenuItem* append_submenu(wxMenu* menu, wxMenu* sub_menu, int id, const wxStrin
 #ifndef __linux__
         msw_menuitem_bitmaps[id] = icon;
 #endif // no __linux__
+
+#ifdef __WXMSW__
+        wxBitmapBundle* bmp_disabled = get_bmp_bundle(icon, 16, -1, std::string(), true);
+        if (bmp_disabled && bmp_disabled->IsOk())
+            item->SetDisabledBitmap(*bmp_disabled);
+#endif // __WXMSW__
     }
 
     item->SetSubMenu(sub_menu);
@@ -223,6 +248,11 @@ wxMenuItem* append_menu_check_item(wxMenu* menu, int id, const wxString& string,
 void set_menu_item_bitmap(wxMenuItem* item, const std::string& icon_name)
 {
     item->SetBitmap(*get_bmp_bundle(icon_name));
+#ifdef __WXMSW__
+    wxBitmapBundle* item_icon_disabled = get_bmp_bundle(icon_name, 16, -1, std::string(), true);
+    if (item_icon_disabled && item_icon_disabled->IsOk())
+        item->SetDisabledBitmap(*item_icon_disabled);
+#endif // __WXMSW__
 #ifndef __linux__
     const auto it = msw_menuitem_bitmaps.find(item->GetId());
     if (it != msw_menuitem_bitmaps.end() && it->second != icon_name)
@@ -283,7 +313,7 @@ static int scale()
 }
 #endif // __WXGTK2__
 
-wxBitmapBundle* get_bmp_bundle(const std::string& bmp_name_in, int width/* = 16*/, int height/* = -1*/, const std::string& new_color/* = std::string()*/)
+wxBitmapBundle* get_bmp_bundle(const std::string& bmp_name_in, int width/* = 16*/, int height/* = -1*/, const std::string& new_color/* = std::string()*/, bool disabled/* = false*/)
 {
 #ifdef __WXGTK2__
     width *= scale();
@@ -300,7 +330,7 @@ wxBitmapBundle* get_bmp_bundle(const std::string& bmp_name_in, int width/* = 16*
         height = width;
 
     // Try loading an SVG first, then PNG if SVG is not found:
-    wxBitmapBundle* bmp = cache.from_svg(bmp_name, width, height, Slic3r::GUI::wxGetApp().dark_mode(), new_color);
+    wxBitmapBundle* bmp = cache.from_svg(bmp_name, width, height, Slic3r::GUI::wxGetApp().dark_mode(), new_color, disabled);
     if (bmp == nullptr) {
         bmp = cache.from_png(bmp_name, width, height);
         if (!bmp)

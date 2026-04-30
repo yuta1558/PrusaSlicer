@@ -393,7 +393,7 @@ error:
 }
 
 wxBitmapBundle* BitmapCache::from_svg(const std::string& bitmap_name, unsigned target_width, unsigned target_height,
-                                      const bool dark_mode, const std::string& new_color /*= ""*/)
+                                      const bool dark_mode, const std::string& new_color /*= ""*/, const bool disabled /*= false*/)
 {
     if (target_width == 0)
         target_width = target_height;
@@ -401,6 +401,7 @@ wxBitmapBundle* BitmapCache::from_svg(const std::string& bitmap_name, unsigned t
         "-h" + std::to_string(target_height) :
         "-w" + std::to_string(target_width))
         + (dark_mode ? "-dm" : "")
+        + (disabled ? "-d" : "")
         + new_color;
 
     auto it = m_bndl_map.find(bitmap_key);
@@ -421,7 +422,44 @@ wxBitmapBundle* BitmapCache::from_svg(const std::string& bitmap_name, unsigned t
     if (str.empty())
         return nullptr;
 
-    return insert_bndl(bitmap_key, str.data(), target_width, target_height);
+    if (!disabled)
+        return insert_bndl(bitmap_key, str.data(), target_width, target_height);
+
+    // Build a disabled-state bundle: rasterize the SVG at expected display
+    // scales, then run wxBitmap::ConvertToDisabled() on each variant so the
+    // bundle is composed of pre-grayed bitmaps.  Without this, wxMSW falls
+    // back on its own SVG-bundle disabled rendering and produces solid black
+    // silhouettes (PrusaSlicer issue: disabled menu icons appear as black
+    // squares on Windows).
+    wxBitmapBundle src_bndl = wxBitmapBundle::FromSVG(str.data(), wxSize(target_width, target_height));
+
+    wxVector<wxBitmap> bitmaps;
+    std::set<double> scales = { 1.0 };
+#ifndef __linux__
+#ifdef __APPLE__
+    scales.emplace(m_scale);
+#else
+    size_t disp_cnt = wxDisplay::GetCount();
+    for (size_t disp = 0; disp < disp_cnt; ++disp)
+        scales.emplace(wxDisplay(disp).GetScaleFactor());
+#endif
+#endif // !__linux__
+
+    for (double scale : scales) {
+        wxSize sz(int(target_width * scale + 0.5), int(target_height * scale + 0.5));
+        wxBitmap bmp = src_bndl.GetBitmap(sz);
+        if (bmp.IsOk())
+            bitmaps.push_back(bmp.ConvertToDisabled());
+    }
+
+    if (bitmaps.empty())
+        return insert_bndl(bitmap_key, str.data(), target_width, target_height);
+
+    // The cache miss was checked at the top of this function, so install a
+    // freshly built bundle keyed by bitmap_key.
+    wxBitmapBundle* bndl = new wxBitmapBundle(wxBitmapBundle::FromBitmaps(bitmaps));
+    m_bndl_map[bitmap_key] = bndl;
+    return bndl;
 }
 
 wxBitmapBundle* BitmapCache::from_png(const std::string& bitmap_name, unsigned width, unsigned height)
