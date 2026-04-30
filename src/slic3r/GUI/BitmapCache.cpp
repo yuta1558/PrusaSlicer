@@ -393,7 +393,7 @@ error:
 }
 
 wxBitmapBundle* BitmapCache::from_svg(const std::string& bitmap_name, unsigned target_width, unsigned target_height,
-                                      const bool dark_mode, const std::string& new_color /*= ""*/)
+                                      const bool dark_mode, const std::string& new_color /*= ""*/, const bool disabled /*= false*/)
 {
     if (target_width == 0)
         target_width = target_height;
@@ -401,6 +401,7 @@ wxBitmapBundle* BitmapCache::from_svg(const std::string& bitmap_name, unsigned t
         "-h" + std::to_string(target_height) :
         "-w" + std::to_string(target_width))
         + (dark_mode ? "-dm" : "")
+        + (disabled ? "-d" : "")
         + new_color;
 
     auto it = m_bndl_map.find(bitmap_key);
@@ -409,12 +410,26 @@ wxBitmapBundle* BitmapCache::from_svg(const std::string& bitmap_name, unsigned t
 
     // map of color replaces
     std::map<std::string, std::string> replaces;
-    if (dark_mode)
-        replaces["#808080"] = "#FFFFFF";
-    if (!new_color.empty())
-        replaces["#ED6B21"] = new_color;
+    if (disabled) {
+        // Build a disabled-state SVG by remapping the small palette used in
+        // PrusaSlicer's icons to a faded grey.  The resulting bundle stays a
+        // wxBitmapBundle::FromSVG (same type as the normal-state bundle), so
+        // wxMSW can render both states through the same owner-drawn path.
+        // Mixing FromSVG + FromBitmaps caused all menu icons (including the
+        // enabled ones) to disappear.
+        replaces["#ED6B21"] = "#C0C0C0";
+        replaces["#808080"] = "#C0C0C0";
+        replaces["#000000"] = "#A0A0A0";
+        replaces["black"]   = "#A0A0A0";
+        replaces["#ButtonBG"] = dark_mode ? "#4E4E4E" : "#C0C0C0";
+    } else {
+        if (dark_mode)
+            replaces["#808080"] = "#FFFFFF";
+        if (!new_color.empty())
+            replaces["#ED6B21"] = new_color;
 
-    replaces["#ButtonBG"] = dark_mode ? "#4E4E4E" : "#828282";
+        replaces["#ButtonBG"] = dark_mode ? "#4E4E4E" : "#828282";
+    }
 
     std::string str;
     nsvgGetDataFromFileWithReplace(Slic3r::var(bitmap_name + ".svg").c_str(), str, replaces);
