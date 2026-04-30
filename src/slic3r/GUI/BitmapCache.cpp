@@ -410,56 +410,33 @@ wxBitmapBundle* BitmapCache::from_svg(const std::string& bitmap_name, unsigned t
 
     // map of color replaces
     std::map<std::string, std::string> replaces;
-    if (dark_mode)
-        replaces["#808080"] = "#FFFFFF";
-    if (!new_color.empty())
-        replaces["#ED6B21"] = new_color;
+    if (disabled) {
+        // Build a disabled-state SVG by remapping the small palette used in
+        // PrusaSlicer's icons to a faded grey.  The resulting bundle stays a
+        // wxBitmapBundle::FromSVG (same type as the normal-state bundle), so
+        // wxMSW can render both states through the same owner-drawn path.
+        // Mixing FromSVG + FromBitmaps caused all menu icons (including the
+        // enabled ones) to disappear.
+        replaces["#ED6B21"] = "#C0C0C0";
+        replaces["#808080"] = "#C0C0C0";
+        replaces["#000000"] = "#A0A0A0";
+        replaces["black"]   = "#A0A0A0";
+        replaces["#ButtonBG"] = dark_mode ? "#4E4E4E" : "#C0C0C0";
+    } else {
+        if (dark_mode)
+            replaces["#808080"] = "#FFFFFF";
+        if (!new_color.empty())
+            replaces["#ED6B21"] = new_color;
 
-    replaces["#ButtonBG"] = dark_mode ? "#4E4E4E" : "#828282";
+        replaces["#ButtonBG"] = dark_mode ? "#4E4E4E" : "#828282";
+    }
 
     std::string str;
     nsvgGetDataFromFileWithReplace(Slic3r::var(bitmap_name + ".svg").c_str(), str, replaces);
     if (str.empty())
         return nullptr;
 
-    if (!disabled)
-        return insert_bndl(bitmap_key, str.data(), target_width, target_height);
-
-    // Build a disabled-state bundle: rasterize the SVG at expected display
-    // scales, then run wxBitmap::ConvertToDisabled() on each variant so the
-    // bundle is composed of pre-grayed bitmaps.  Without this, wxMSW falls
-    // back on its own SVG-bundle disabled rendering and produces solid black
-    // silhouettes (PrusaSlicer issue: disabled menu icons appear as black
-    // squares on Windows).
-    wxBitmapBundle src_bndl = wxBitmapBundle::FromSVG(str.data(), wxSize(target_width, target_height));
-
-    wxVector<wxBitmap> bitmaps;
-    std::set<double> scales = { 1.0 };
-#ifndef __linux__
-#ifdef __APPLE__
-    scales.emplace(m_scale);
-#else
-    size_t disp_cnt = wxDisplay::GetCount();
-    for (size_t disp = 0; disp < disp_cnt; ++disp)
-        scales.emplace(wxDisplay(disp).GetScaleFactor());
-#endif
-#endif // !__linux__
-
-    for (double scale : scales) {
-        wxSize sz(int(target_width * scale + 0.5), int(target_height * scale + 0.5));
-        wxBitmap bmp = src_bndl.GetBitmap(sz);
-        if (bmp.IsOk())
-            bitmaps.push_back(bmp.ConvertToDisabled());
-    }
-
-    if (bitmaps.empty())
-        return insert_bndl(bitmap_key, str.data(), target_width, target_height);
-
-    // The cache miss was checked at the top of this function, so install a
-    // freshly built bundle keyed by bitmap_key.
-    wxBitmapBundle* bndl = new wxBitmapBundle(wxBitmapBundle::FromBitmaps(bitmaps));
-    m_bndl_map[bitmap_key] = bndl;
-    return bndl;
+    return insert_bndl(bitmap_key, str.data(), target_width, target_height);
 }
 
 wxBitmapBundle* BitmapCache::from_png(const std::string& bitmap_name, unsigned width, unsigned height)
